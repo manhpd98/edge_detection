@@ -9,6 +9,10 @@ public class SwiftEdgeDetectionPlugin: NSObject, FlutterPlugin, UIApplicationDel
         let instance = SwiftEdgeDetectionPlugin()
         registrar.addMethodCallDelegate(instance, channel: channel)
         registrar.addApplicationDelegate(instance)
+        
+        // Register factory for EdgeDetectionView
+        let factory = EdgeDetectionViewFactory(messenger: registrar.messenger())
+        registrar.register(factory, withId: "edge_detection_view")
     }
     
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -34,5 +38,27 @@ public class SwiftEdgeDetectionPlugin: NSObject, FlutterPlugin, UIApplicationDel
                 destinationViewController.selectPhoto();
             }
         }
+    }
+}
+
+class EdgeDetectionViewFactory: NSObject, FlutterPlatformViewFactory {
+    private var messenger: FlutterBinaryMessenger
+    
+    init(messenger: FlutterBinaryMessenger) {
+        self.messenger = messenger
+        super.init()
+    }
+    
+    func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+        return EdgeDetectionView(
+            frame: frame,
+            viewIdentifier: viewId,
+            messenger: messenger,
+            arguments: args
+        )
+    }
+    
+    func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+        return FlutterStandardMessageCodec.sharedInstance()
     }
 }
