@@ -9,15 +9,21 @@ import WeScan
 import Flutter
 import Foundation
 
+protocol ScanPhotoViewControllerDelegate: AnyObject {
+    func scanPhotoViewController(_ controller: ScanPhotoViewController, didFinishScanningWithResults results: ImageScannerResults)
+    func scanPhotoViewControllerDidCancel(_ controller: ScanPhotoViewController)
+}
+
 class ScanPhotoViewController: UIViewController, ImageScannerControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     
-    var _result:FlutterResult?
+    weak var delegate: ScanPhotoViewControllerDelegate?
+    var _result: FlutterResult?
     var saveTo: String = ""
     
     public func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
-        
-        _result!(false)
+        delegate?.scanPhotoViewControllerDidCancel(self)
+        _result?(false)
         dismiss(animated: true)
     }
     
@@ -66,28 +72,24 @@ class ScanPhotoViewController: UIViewController, ImageScannerControllerDelegate,
     
     func imageScannerController(_ scanner: ImageScannerController, didFailWithError error: Error) {
         print(error)
-        _result!(false)
+        delegate?.scanPhotoViewControllerDidCancel(self)
+        _result?(false)
         self.dismiss(animated: true)
     }
     
     func imageScannerController(_ scanner: ImageScannerController, didFinishScanningWithResults results: ImageScannerResults) {
-        // Your ViewController is responsible for dismissing the ImageScannerController
         scanner.dismiss(animated: true)
-        
-        
-        saveImage(image:results.doesUserPreferEnhancedScan ? results.enhancedScan!.image : results.croppedScan.image)
-        _result!(true)
+        delegate?.scanPhotoViewController(self, didFinishScanningWithResults: results)
+        _result?(true)
         self.dismiss(animated: true)
     }
-    
     
     func imageScannerControllerDidCancel(_ scanner: ImageScannerController) {
-        // Your ViewController is responsible for dismissing the ImageScannerController
         scanner.dismiss(animated: true)
-        _result!(false)
+        delegate?.scanPhotoViewControllerDidCancel(self)
+        _result?(false)
         self.dismiss(animated: true)
     }
-    
     
     func saveImage(image: UIImage) -> String? {
         guard let data = image.jpegData(compressionQuality: 1) ?? image.pngData() else {
@@ -96,7 +98,7 @@ class ScanPhotoViewController: UIViewController, ImageScannerControllerDelegate,
         guard let directory = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false) as NSURL else {
             return nil
         }
-        var fileName = randomString(length:10);
+        var fileName = randomString(length: 10)
         let filePath: URL = directory.appendingPathComponent(fileName + ".png")!
         
         do {
@@ -124,7 +126,6 @@ class ScanPhotoViewController: UIViewController, ImageScannerControllerDelegate,
             return nil
         }
     }
-    
     
     func randomString(length: Int) -> String {
         

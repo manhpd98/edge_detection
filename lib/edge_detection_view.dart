@@ -3,15 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class EdgeDetectionView extends StatefulWidget {
-  final String saveTo;
   final bool canUseGallery;
-  final Function(bool) onResult;
+  final Function(String) onImageCaptured;
+  final Function(String)? onError;
+  final VoidCallback? onCancel;
 
   const EdgeDetectionView({
     Key? key,
-    required this.saveTo,
     this.canUseGallery = true,
-    required this.onResult,
+    required this.onImageCaptured,
+    this.onError,
+    this.onCancel,
   }) : super(key: key);
 
   @override
@@ -19,33 +21,36 @@ class EdgeDetectionView extends StatefulWidget {
 }
 
 class _EdgeDetectionViewState extends State<EdgeDetectionView> {
-  static const platform = MethodChannel('edge_detection');
   static const viewType = 'edge_detection_view';
+  late MethodChannel _channel;
+  int _viewId = 0;
 
   @override
-  Widget build(BuildContext context) {
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
-      return UiKitView(
-        viewType: viewType,
-        creationParams: {
-          'save_to': widget.saveTo,
-          'can_use_gallery': widget.canUseGallery,
-        },
-        creationParamsCodec: const StandardMessageCodec(),
-        onPlatformViewCreated: _onPlatformViewCreated,
-      );
-    }
-    return const Center(
-      child: Text('Platform not supported'),
-    );
+  void initState() {
+    super.initState();
+    _viewId = DateTime.now().millisecondsSinceEpoch;
+    _channel = MethodChannel('edge_detection_view_$_viewId');
+    print('Flutter channel name: edge_detection_view_$_viewId');
+    _setupChannel();
   }
 
-  void _onPlatformViewCreated(int id) {
-    platform.setMethodCallHandler((call) async {
+  void _setupChannel() {
+    print('Setting up Flutter method channel handler');
+    _channel.setMethodCallHandler((call) async {
+      print('Flutter received method call: ${call.method}');
       switch (call.method) {
+        case 'onImageCaptured':
+          final String imagePath = call.arguments as String;
+          widget.onImageCaptured(imagePath);
+          break;
+        case 'onError':
+          final String error = call.arguments as String;
+          widget.onError?.call(error);
+          break;
+        case 'onCancel':
+          widget.onCancel?.call();
+          break;
         case 'onResult':
-          final bool result = call.arguments as bool;
-          widget.onResult(result);
           break;
         default:
           throw PlatformException(
@@ -55,4 +60,24 @@ class _EdgeDetectionViewState extends State<EdgeDetectionView> {
       }
     });
   }
-} 
+
+  @override
+  Widget build(BuildContext context) {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return UiKitView(
+        viewType: viewType,
+        creationParams: {
+          'can_use_gallery': widget.canUseGallery,
+          'view_id': _viewId,
+        },
+        creationParamsCodec: const StandardMessageCodec(),
+        onPlatformViewCreated: (int id) {
+          // View đã được tạo
+        },
+      );
+    }
+    return const Center(
+      child: Text('Platform not supported'),
+    );
+  }
+}

@@ -6,9 +6,8 @@ class EdgeDetectionView: NSObject, FlutterPlatformView {
     private var _view: UIView
     private var cameraController: ImageScannerController?
     private var selectPhotoButton: UIButton?
-    private var saveTo: String = ""
     private var canUseGallery: Bool = true
-    private var result: FlutterResult?
+    private var channel: FlutterMethodChannel
     
     init(
         frame: CGRect,
@@ -17,15 +16,41 @@ class EdgeDetectionView: NSObject, FlutterPlatformView {
         arguments: Any?
     ) {
         _view = UIView(frame: frame)
-        super.init()
         
+        var channelName = "edge_detection_view_\(viewIdentifier)"
         if let args = arguments as? [String: Any] {
-            saveTo = args["save_to"] as? String ?? ""
             canUseGallery = args["can_use_gallery"] as? Bool ?? true
+            if let viewId = args["view_id"] as? Int64 {
+                channelName = "edge_detection_view_\(viewId)"
+            }
         }
         
+        channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+        print("Swift channel name: \(channelName)")
+        super.init()
+        
+        setupChannel()
         setupCamera()
         setupGalleryButton()
+    }
+    
+    private func setupChannel() {
+        print("Setting up Swift method channel handler")
+        channel.setMethodCallHandler { [weak self] (call, result) in
+            print("Swift received method call: \(call.method)")
+            switch call.method {
+            case "dispose":
+                self?.dispose()
+                result(nil)
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
+    }
+    
+    private func dispose() {
+        cameraController?.dismiss(animated: false)
+        cameraController = nil
     }
     
     func view() -> UIView {
@@ -70,7 +95,7 @@ class EdgeDetectionView: NSObject, FlutterPlatformView {
     
     @objc private func selectPhoto() {
         let scanPhotoVC = ScanPhotoViewController()
-        scanPhotoVC.saveTo = self.saveTo
+        scanPhotoVC.delegate = self
         if #available(iOS 13.0, *) {
             scanPhotoVC.isModalInPresentation = true
             scanPhotoVC.overrideUserInterfaceStyle = .dark
@@ -81,25 +106,27 @@ class EdgeDetectionView: NSObject, FlutterPlatformView {
         }
     }
     
-    func saveImage(image: UIImage) -> Bool {
-        guard let data = image.jpegData(compressionQuality: 1) ?? image.pngData() else {
-            return false
+    private func saveImageAndNotify(image: UIImage) {
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let fileName = "\(timestamp).jpeg"
+        
+        guard let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            channel.invokeMethod("onError", arguments: "Could not get documents directory")
+            return
         }
         
-        let path = "file://" + self.saveTo.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
-        let filePath = URL(string: path)!
+        let fileURL = documentsPath.appendingPathComponent(fileName)
+        
+        guard let data = image.jpegData(compressionQuality: 1) else {
+            channel.invokeMethod("onError", arguments: "Could not convert image to data")
+            return
+        }
         
         do {
-            let fileManager = FileManager.default
-            if fileManager.fileExists(atPath: filePath.path) {
-                try fileManager.removeItem(atPath: filePath.path)
-            }
-            
-            try data.write(to: filePath)
-            return true
+            try data.write(to: fileURL)
+            channel.invokeMethod("onImageCaptured", arguments: fileURL.path)
         } catch {
-            print(error.localizedDescription)
-            return false
+            channel.invokeMethod("onError", arguments: error.localizedDescription)
         }
     }
 }
@@ -107,15 +134,26 @@ class EdgeDetectionView: NSObject, FlutterPlatformView {
 extension EdgeDetectionView: ImageScannerControllerDelegate {
     func imageScannerController(_ scanner: ImageScannerController, didFailWithError error: Error) {
         print(error)
-        result?(false)
+        channel.invokeMethod("onError", arguments: error.localizedDescription)
     }
     
     func imageScannerController(_ scanner: ImageScannerController, didFinishScanningWithResults results: ImageScannerResults) {
-        saveImage(image: results.doesUserPreferEnhancedScan ? results.enhancedScan!.image : results.croppedScan.image)
-        result?(true)
+        let image = results.doesUserPreferEnhancedScan ? results.enhancedScan!.image : results.croppedScan.image
+        saveImageAndNotify(image: image)
     }
     
     func imageScannerControllerDidCancel(_ scanner: ImageScannerController) {
-        result?(false)
+        channel.invokeMethod("onCancel", arguments: nil)
+    }
+}
+
+extension EdgeDetectionView: ScanPhotoViewControllerDelegate {
+    func scanPhotoViewController(_ controller: ScanPhotoViewController, didFinishScanningWithResults results: ImageScannerResults) {
+        let image = results.doesUserPreferEnhancedScan ? results.enhancedScan!.image : results.croppedScan.image
+        saveImageAndNotify(image: image)
+    }
+    
+    func scanPhotoViewControllerDidCancel(_ controller: ScanPhotoViewController) {
+        channel.invokeMethod("onCancel", arguments: nil)
     }
 } 
